@@ -9,7 +9,7 @@ output: html_document
 ```{r library, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 
-library(googlesheets4) # google sheets
+library(googlesheets4) # google sheets -> data_import section
 # library(ggplot2) # ggplot
 # library(plotly)
 # library(GGally)
@@ -19,7 +19,7 @@ library(googlesheets4) # google sheets
 # library(forecast)
 # library(tseries)
 # library(dplyr)
-# library(lubridate)
+library(lubridate) # wday -> week prepossessing section
 # library(car)
 # library(ggcorrplot)
 # library(dplyr)
@@ -55,7 +55,7 @@ source("isValidSheet.R", encoding="utf-8") # data_check chunk
 # Data Retrieval and Preprocessing
 ```{r data_import}
 # Retrieve data from Google sheet ----------------------------------------------
-# Authentification
+# Authentication
 # gs4_auth()
 # full weather
 RAW_DATA_URL <- "https://docs.google.com/spreadsheets/d/1K7VRu80v6qy1qhHgJqL9MrtPOsLaZbtBiMPRwuxgf9c/edit?usp=sharing"
@@ -78,14 +78,7 @@ colnames(sheet) <- c("date","isClose","fl","slfw","lfw",
                      "temp","humi","precip")
 sheet <- data.frame(sheet)
 View(sheet)
-```
 
-```{r na.omit_sheet}
-# remove unobserved data -------------------------------------------------------
-# sheet <- na.omit(sheet)
-```
-
-```{r data_check}
 ################################################################################
 # Check for sheet existence and data frame format
 # Check if isClose is 0 or 1
@@ -99,11 +92,18 @@ View(sheet)
 isValidSheet(sheet)
 ```
 
+```{r na.omit_sheet}
+# remove unobserved data -------------------------------------------------------
+# sheet <- na.omit(sheet)
+```
+
+
 ```{r flw_calc_open__preprocessing}
 ## remove apparatus weights------------------------------------------------------
 # Bucket weight for food loss is 1 kg
 # Bucket and strainer weight is 1 + 0.3 kg
 ###################################################
+
 # Create vectors for food loss and waste observations
 foodLossKg <- allWasteKg <- liquidWasteKg <- solidWasteKg <- numeric()
 BUCKET_WEIGHT   = 1   # Bucket weight is 1 kg
@@ -141,10 +141,6 @@ obs_days   <- open_days + close_days
 if(!(nrow(sheet) == obs_days))
   print("Error! Number of observations.")
 
-# Anomalies on weather condition variables: X - X_bar --------------------------
-# anomTempC    <- as.numeric(sheet$hrTM - mean(sheet$hrTM))
-# anomPrecipMM <- as.numeric(sheet$precip - mean(sheet$precip))
-
 # Data Frame -------------------------------------------------------------------
 df <- data.frame(
   # Obs. date and the restaurant close or not
@@ -168,4 +164,55 @@ df <- data.frame(
   humidityPerc = as.numeric(sheet$humi),
   precipMM     = as.numeric(sheet$precip)#,
 )
+View(df)
 ```
+
+```{r week_preprocessing}
+# Categorical Variable for week of day -----------------------------------------------
+# create new vector for each week of day 
+week_day <- wday(df$date, label = TRUE)
+
+# Assign 1; otherwise 0 --------------------------------------------------------
+tue <- wed <- thur <- fri <- sat <- sun <- numeric(length = obs_days)
+sun <- ifelse(week_day == "Sun", 1, 0) # Sunday = base
+
+tue <- ifelse(week_day == "Tue", 1, 0)
+wed <- ifelse(week_day == "Wed", 1, 0)
+thu <- ifelse(week_day == "Thu", 1, 0)
+fri <- ifelse(week_day == "Fri", 1, 0)
+sat <- ifelse(week_day == "Sat", 1, 0)
+
+## Dummy Coding: Sunday is the base case
+# Combine each week of day vector: Sunday base
+wkSun0 <- cbind(tue, wed, thu, fri, sat)
+
+## Effect Coding: Sunday is the contrast group
+tue1 <- ifelse(week_day == "Tue", 1, ifelse(week_day == "Sun",-1,0))
+wed1 <- ifelse(week_day == "Wed", 1, ifelse(week_day == "Sun",-1,0))
+thu1 <- ifelse(week_day == "Thu", 1, ifelse(week_day == "Sun",-1,0))
+fri1 <- ifelse(week_day == "Fri", 1, ifelse(week_day == "Sun",-1,0))
+sat1 <- ifelse(week_day == "Sat", 1, ifelse(week_day == "Sun",-1,0))
+wkSun1 <- cbind(tue1, wed1, thu1, fri1, sat1)
+
+# Combine data set
+dt <- cbind(df, sun, wkSun0, wkSun1)
+
+# summary of week of the day with opening
+openTable <- data.frame(Open = c(sum(dt$tue[dt$isClose==0]),
+                                 sum(dt$wed[dt$isClose==0]),
+                                 sum(dt$thu[dt$isClose==0]),
+                                 sum(dt$fri[dt$isClose==0]),
+                                 sum(dt$sat[dt$isClose==0]),
+                                 sum(dt$sun[dt$isClose==0])),
+                        Close =c(sum(dt$tue[dt$isClose==1]),
+                                 sum(dt$wed[dt$isClose==1]),
+                                 sum(dt$thu[dt$isClose==1]),
+                                 sum(dt$fri[dt$isClose==1]),
+                                 sum(dt$sat[dt$isClose==1]),
+                                 sum(dt$sun[dt$isClose==1])))
+row.names(openTable) <- c("Tuesday","Wednesday","Thursday",
+                          "Friday","Saturday","Sunday")
+openTable
+```
+
+
