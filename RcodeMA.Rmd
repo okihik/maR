@@ -1,0 +1,171 @@
+---
+title: "Rcode for FLW in restaurant"
+author: "Akihiko Mori"
+date: "10/04/2023"
+output: html_document
+---
+
+# Library
+```{r library, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(googlesheets4) # google sheets
+# library(ggplot2) # ggplot
+# library(plotly)
+# library(GGally)
+# library(ggspectra)
+# library(photobiology)
+# library(ggfortify)
+# library(forecast)
+# library(tseries)
+# library(dplyr)
+# library(lubridate)
+# library(car)
+# library(ggcorrplot)
+# library(dplyr)
+# library(broom)
+# library(MASS) # boxcox transformation
+# library(patchwork)
+
+
+# Library for linear regression model
+# library(forecast)
+# library(ggplot2)
+# library(dplyr)
+# library(broom)
+# library(ggpubr)
+
+# Load library for state space model
+# library(rstan)
+# library(bayesplot)
+# library(gridExtra)
+# library(brms)
+
+# MCMC Computation faster
+# rstan_options(auto_write = TRUE)
+# options(mc.cores = parallel::detectCores())
+
+# Import my functions
+source("isValidSheet.R", encoding="utf-8") # data_check chunk
+# source("plotSSM.R", encoding="utf-8")
+# source("ggplotCorr.R", encoding="utf-8")
+# source("center_matrix.R", encoding = "utf-8")
+```
+
+# Data Retrieval and Preprocessing
+```{r data_import}
+# Retrieve data from Google sheet ----------------------------------------------
+# Authentification
+# gs4_auth()
+# full weather
+RAW_DATA_URL <- "https://docs.google.com/spreadsheets/d/1K7VRu80v6qy1qhHgJqL9MrtPOsLaZbtBiMPRwuxgf9c/edit?usp=sharing"
+
+raw_sheet <- read_sheet(RAW_DATA_URL,
+                        col_names = TRUE,
+                        col_types = "Dldddiiiidi",
+                        range = "gs1!A1:K170")
+
+weather_sheet <- read_sheet(RAW_DATA_URL,
+                            col_names = TRUE,
+                            range = "weatherstats_princegeorge_daily_230402retrieved!A1:AQ214")
+# Combine two sheet sorted by "date"
+sheet <- dplyr::left_join(raw_sheet, weather_sheet, by = "date")
+# Eliminate unnecessary columns
+sheet <- sheet[c(1:11,13,19,53)]
+# rename columns
+colnames(sheet) <- c("date","isClose","fl","slfw","lfw",
+                     "customers","reg","mini","liquors","sales","takeouts",
+                     "temp","humi","precip")
+sheet <- data.frame(sheet)
+View(sheet)
+```
+
+```{r na.omit_sheet}
+# remove unobserved data -------------------------------------------------------
+# sheet <- na.omit(sheet)
+```
+
+```{r data_check}
+################################################################################
+# Check for sheet existence and data frame format
+# Check if isClose is 0 or 1
+# Check for Date
+# Check for negative values for measurements or observations
+# Check if weather conditions (temperature) is between -50 to 50
+# Check if weather conditions (humiditiy) is between 0 to 100
+# Check if precipitation has negative value
+################################################################################
+## Check sheet reasonable inputs -----------------------------------------------
+isValidSheet(sheet)
+```
+
+```{r flw_calc_open__preprocessing}
+## remove apparatus weights------------------------------------------------------
+# Bucket weight for food loss is 1 kg
+# Bucket and strainer weight is 1 + 0.3 kg
+###################################################
+# Create vectors for food loss and waste observations
+foodLossKg <- allWasteKg <- liquidWasteKg <- solidWasteKg <- numeric()
+BUCKET_WEIGHT   = 1   # Bucket weight is 1 kg
+STRAINER_WEIGHT = 0.3 # Strainer weight is 0.3 kg
+
+# Food loss: subtract Bucket weight from food loss in sheet
+for (val in sheet$fl)
+  foodLossKg <- c(foodLossKg, 
+                  ifelse(val == 0, val, val - BUCKET_WEIGHT))
+
+# All food waste: subtract Bucket and strainer weight from all food waste in sheet
+for (val in sheet$slfw) 
+  allWasteKg <- c(allWasteKg, 
+                  ifelse(val == 0, val, val - (BUCKET_WEIGHT + STRAINER_WEIGHT)))
+
+# Liquid food waste: subtract Bucket and strainer weight from liquid food waste in sheet
+for (val in sheet$lfw) 
+  liquidWasteKg <- c(liquidWasteKg, 
+                     ifelse(val == 0, val, val - (BUCKET_WEIGHT + STRAINER_WEIGHT)))
+
+# Solid food waste:= all food waste - liquid food waste
+solidWasteKg <- allWasteKg - liquidWasteKg
+
+# check negative values
+if(!(all((foodLossKg    >= 0)|
+         (solidWasteKg  >= 0)|
+         (liquidWasteKg >= 0)|
+         (solidWasteKg  >= 0) == TRUE)))
+    print("Error: the date has negative values.")
+
+# Number of observations and closed day at the restaurant
+open_days  <- sum(!sheet$isClose)
+close_days <- sum(sheet$isClose)
+obs_days   <- open_days + close_days
+if(!(nrow(sheet) == obs_days))
+  print("Error! Number of observations.")
+
+# Anomalies on weather condition variables: X - X_bar --------------------------
+# anomTempC    <- as.numeric(sheet$hrTM - mean(sheet$hrTM))
+# anomPrecipMM <- as.numeric(sheet$precip - mean(sheet$precip))
+
+# Data Frame -------------------------------------------------------------------
+df <- data.frame(
+  # Obs. date and the restaurant close or not
+  date    = as.Date(sheet$date[1:obs_days]),
+  isClose = as.logical(sheet$isClose),
+  # food loss and waste at the restaurant
+  foodLossKg    = foodLossKg,
+  allWasteKg    = allWasteKg,
+  liquidWasteKg = liquidWasteKg,
+  solidWasteKg  = solidWasteKg,
+  # types of orders
+  regularOrders = as.numeric(sheet$reg),
+  miniOrders    = as.numeric(sheet$mini),
+  takeouts      = as.numeric(sheet$takeouts),
+  # Business variables
+  customer = as.numeric(sheet$customers),
+  liquors  = as.numeric(sheet$liquors),
+  sales    = as.numeric(sheet$sales),
+  # weather conditions
+  tempC        = as.numeric(sheet$temp),
+  humidityPerc = as.numeric(sheet$humi),
+  precipMM     = as.numeric(sheet$precip)#,
+)
+```
