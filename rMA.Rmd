@@ -3,6 +3,8 @@ title: "Rcode for FLW in restaurant"
 author: "Akihiko Mori"
 date: "10/04/2023"
 output: html_document
+editor_options: 
+  chunk_output_type: inline
 ---
 
 # Library
@@ -10,7 +12,11 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 
 library(googlesheets4) # google sheets -> data_import section
-# library(ggplot2) # ggplot
+library(dplyr) 
+library(lubridate) # wday -> week prepossessing section
+
+library(ggplot2) # ggplot -> plots(time series)
+library(gridExtra)
 # library(plotly)
 # library(GGally)
 # library(ggspectra)
@@ -19,14 +25,13 @@ library(googlesheets4) # google sheets -> data_import section
 # library(forecast)
 # library(tseries)
 # library(dplyr)
-library(lubridate) # wday -> week prepossessing section
+
 # library(car)
 # library(ggcorrplot)
-# library(dplyr)
+
 # library(broom)
 # library(MASS) # boxcox transformation
 # library(patchwork)
-
 
 # Library for linear regression model
 # library(forecast)
@@ -215,4 +220,58 @@ row.names(openTable) <- c("Tuesday","Wednesday","Thursday",
 openTable
 ```
 
+# Univariable Basic Summary
+```{r basic_summary_waste}
+# basic summary ----------------------------------------------------------------
+data.frame(food_loss_waste   = c(summary(dt$foodLossKg+dt$allWasteKg)),
+           food_waste_all    = c(summary(dt$allWasteKg)),
+           food_waste_liquid = c(summary(dt$liquidWasteKg)),
+           food_waste_solid  = c(summary(dt$solidWasteKg)))
+# sample size: open and close days ---------------------------------------
+data.frame(obs_days   = obs_days,
+           open_days  = open_days,
+           close_days = close_days)
+# basic summary for restaurant open only ---------------------------------------
+data.frame(food_loss_waste   = c(summary(dt$foodLossKg[!dt$isClose]+
+                                           dt$allWasteKg[!dt$isClose])),
+           food_waste_all    = c(summary(dt$allWasteKg[!dt$isClose])),
+           food_waste_liquid = c(summary(dt$liquidWasteKg[!dt$isClose])),
+           food_waste_solid  = c(summary(dt$solidWasteKg[!dt$isClose])))
+```
 
+
+# Univariable Basic plots
+```{r tsPlot}
+# Time Series Plot on all, liquid, and solid food waste ------------------------
+tsPlot <- 
+  ggplot() +
+  geom_line(data = dt, aes(x = date, y = allWasteKg+foodLossKg), color="blue") +
+  geom_point(data = dt, aes(x = date, y = allWasteKg+foodLossKg,
+                            shape = isClose)) +
+  scale_shape_manual(values=c(16, 4)) +
+  theme(legend.position = c(0.1,0.15)) +
+  # geom_rect(data = dt, aes(xmin = date, xmax = dplyr::lead(date), 
+  #                          ymin = -Inf, ymax = Inf, 
+  #                          fill = factor(!isClose)),  alpha = .3) +
+  xlab("Date") +
+  ylab("Daily Food Loss and Waste (kg)") +
+  ggtitle("Daily Food Loss and Waste Trend")
+# tsPlot
+
+# Time Series Plot on all, liquid, and solid food waste ------------------------
+tsPlot_waste <- 
+  ggplot() +
+  geom_line(data = dt, aes(x = date, y = allWasteKg), color="black") +
+  #geom_line(data = dt, aes(x = date, y = liquidWasteKg), color="orange", linetype = "dotted") +
+  geom_line(data = dt, aes(x = date, y = solidWasteKg), color="blue", linetype = "dashed") +
+  geom_point(data = dt, aes(x = date, y = allWasteKg, shape = isClose)) +
+  # geom_point(data = dt, aes(x = date, y = solidWasteKg, shape = isClose)) +
+  scale_shape_manual(values=c(16, 4))+
+  theme(legend.position = c(0.8,0.85)) +
+  xlab("Date") +
+  ylab("Daily Food Waste (kg)") +
+  ggtitle("Daily Food Waste Trend")
+# tsPlot_waste
+
+grid.arrange(tsPlot,tsPlot_waste)
+```
